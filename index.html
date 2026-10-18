@@ -275,6 +275,11 @@
   <div id="game-container">
     <canvas id="gameCanvas"></canvas>
     
+    <!-- 原生 HTML5 背景音樂音訊元素 (若有 bgm.mp3 可在此替換) -->
+    <audio id="bgm-audio" loop playsinline preload="auto">
+      <source src="assets/bgm.mp3" type="audio/mpeg">
+    </audio>
+
     <!-- HUD 進度 -->
     <div id="hud">已解鎖記憶：<span id="unlocked-count">0</span> / 10</div>
 
@@ -292,7 +297,6 @@
     <!-- 1. 開場簡介與規則 Modal -->
     <div id="start-modal" class="modal-overlay">
       <div class="modal-card">
-        <!-- 頂端黑框上方跑動的小比 -->
         <div class="bunny-runner-track">
           <canvas id="bunnyCanvas" class="bunny-sprite" width="38" height="38"></canvas>
         </div>
@@ -377,15 +381,14 @@
     }
     renderRunnerBunny();
 
-    // --- 音效與 BGM 系統 ---
+    // --- 音效與 BGM 控制系統 ---
     class SoundEngine {
       constructor() {
         this.ctx = null;
         this.isMuted = false;
-        this.bgmTimer = null;
-        this.bgmNoteIndex = 0;
-        this.volumeScale = 1.0;
-        this.unlocked = false;
+        this.bgmAudio = document.getElementById('bgm-audio');
+        this.synthTimer = null;
+        this.synthIndex = 0;
         this.melody = [
           523.25, 659.25, 783.99, 1046.50, 783.99, 659.25,
           587.33, 698.46, 880.00, 1174.66, 880.00, 698.46,
@@ -394,40 +397,60 @@
         ];
       }
 
-      // 嚴格在使用者手勢事件第一時間執行的解鎖函式
-      unlockContext() {
+      // 點擊「開始」時執行的強效音樂啟動系統
+      startMusic() {
+        if (this.isMuted) return;
+
+        // 1. 優先嘗試播放實體音訊檔 (HTML5 Audio)
+        if (this.bgmAudio) {
+          this.bgmAudio.volume = 1.0;
+          const playPromise = this.bgmAudio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              // 若無音訊檔備援：啟動 Web Audio 合成器
+              this.initWebAudioSynth();
+            });
+          }
+        } else {
+          this.initWebAudioSynth();
+        }
+      }
+
+      initWebAudioSynth() {
         try {
           const AudioContextClass = window.AudioContext || window.webkitAudioContext;
           if (!AudioContextClass) return;
+          if (!this.ctx) this.ctx = new AudioContextClass();
+          if (this.ctx.state === 'suspended') this.ctx.resume();
 
-          if (!this.ctx) {
-            this.ctx = new AudioContextClass();
+          if (!this.synthTimer) {
+            this.synthTimer = setInterval(() => {
+              if (this.isMuted || !this.ctx) return;
+              const freq = this.melody[this.synthIndex];
+              this.synthIndex = (this.synthIndex + 1) % this.melody.length;
+              if (freq > 0) {
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, now);
+                gain.gain.setValueAtTime(0.04, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.18);
+              }
+            }, 220);
           }
-
-          if (this.ctx.state === 'suspended') {
-            this.ctx.resume();
-          }
-
-          // iOS 專用靜音 Buffer 觸發解鎖
-          if (!this.unlocked && this.ctx) {
-            const buffer = this.ctx.createBuffer(1, 1, 22050);
-            const source = this.ctx.createBufferSource();
-            source.buffer = buffer;
-            source.connect(this.ctx.destination);
-            if (source.start) {
-              source.start(0);
-            } else if (source.noteOn) {
-              source.noteOn(0);
-            }
-            this.unlocked = true;
-          }
-          
-          this.startBGM();
         } catch(e) {}
       }
 
-      setVolumeScale(scale) {
-        this.volumeScale = scale;
+      // 開啟影片時：設定音量為 40%
+      setVideoMode(isVideo) {
+        if (this.bgmAudio) {
+          this.bgmAudio.volume = isVideo ? 0.4 : 1.0;
+        }
       }
 
       toggleMute() {
@@ -437,43 +460,19 @@
           btn.innerText = '🎵 背景音樂：靜音';
           btn.style.borderColor = '#999999';
           btn.style.color = '#777777';
+          if (this.bgmAudio) this.bgmAudio.pause();
         } else {
           btn.innerText = '🎵 背景音樂：開啟';
           btn.style.borderColor = '#222222';
           btn.style.color = '#111111';
-          this.unlockContext();
+          this.startMusic();
         }
       }
 
-      startBGM() {
-        if (this.bgmTimer || this.isMuted) return;
-        this.bgmTimer = setInterval(() => {
-          if (this.isMuted || !this.ctx) return;
-          if (this.ctx.state === 'suspended') {
-            this.ctx.resume();
-          }
-          const freq = this.melody[this.bgmNoteIndex];
-          this.bgmNoteIndex = (this.bgmNoteIndex + 1) % this.melody.length;
-          if (freq > 0) {
-            const now = this.ctx.currentTime;
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, now);
-            const targetGain = 0.04 * this.volumeScale;
-            gain.gain.setValueAtTime(targetGain, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-            osc.connect(gain);
-            gain.connect(this.ctx.destination);
-            osc.start(now);
-            osc.stop(now + 0.18);
-          }
-        }, 220);
-      }
-
       playUnlock() {
-        if (this.isMuted || !this.ctx) return;
+        if (this.isMuted) return;
         try {
+          if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           const now = this.ctx.currentTime;
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
@@ -488,8 +487,9 @@
       }
 
       playFail() {
-        if (this.isMuted || !this.ctx) return;
+        if (this.isMuted) return;
         try {
+          if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           const now = this.ctx.currentTime;
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
@@ -504,8 +504,9 @@
       }
 
       playWin() {
-        if (this.isMuted || !this.ctx) return;
+        if (this.isMuted) return;
         try {
+          if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
             const now = this.ctx.currentTime + i * 0.1;
             const osc = this.ctx.createOscillator();
@@ -522,10 +523,8 @@
     }
     const audio = new SoundEngine();
 
-    // 點擊音樂切換按鈕事件
     document.getElementById('music-btn').onclick = function(e) {
       e.stopPropagation();
-      audio.unlockContext();
       audio.toggleMute();
     };
 
@@ -533,8 +532,8 @@
     const COLS = 19;
     const ROWS = 15;
     const TILE = 32;
-    const GAME_W = COLS * TILE; // 608
-    const GAME_H = ROWS * TILE; // 480
+    const GAME_W = COLS * TILE;
+    const GAME_H = ROWS * TILE;
 
     const MAP = [
       [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -662,24 +661,14 @@
     const shibas = [new Shiba(9, 7), new Shiba(15, 11)];
 
     const keys = {};
-    window.addEventListener('keydown', e => {
-      audio.unlockContext();
-      keys[e.key] = true;
-    });
+    window.addEventListener('keydown', e => { keys[e.key] = true; });
     window.addEventListener('keyup', e => { keys[e.key] = false; });
 
     function setupTouch(id, keyName) {
       const btn = document.getElementById(id);
       if (!btn) return;
-      const press = (e) => { 
-        e.preventDefault(); 
-        audio.unlockContext(); 
-        keys[keyName] = true; 
-      };
-      const release = (e) => { 
-        e.preventDefault(); 
-        keys[keyName] = false; 
-      };
+      const press = (e) => { e.preventDefault(); keys[keyName] = true; };
+      const release = (e) => { e.preventDefault(); keys[keyName] = false; };
       btn.addEventListener('touchstart', press, { passive: false });
       btn.addEventListener('touchend', release, { passive: false });
       btn.addEventListener('mousedown', press);
@@ -874,7 +863,7 @@
       });
     }
 
-    // 關閉並完全停止影片音訊，恢復背景音樂為 100%
+    // 關閉並完全停止影片音訊，背景音樂恢復 100% 音量
     function stopModalVideo() {
       const container = document.getElementById('memory-media-container');
       const videos = container.getElementsByTagName('video');
@@ -884,8 +873,7 @@
         v.src = "";
         v.load();
       }
-      // 恢復背景音樂至原本 100% 音量
-      audio.setVolumeScale(1.0);
+      audio.setVideoMode(false);
     }
 
     // 展示解鎖 Modal
@@ -903,7 +891,7 @@
       container.innerHTML = '';
 
       if (m.type === 'p') {
-        audio.setVolumeScale(1.0); // 照片：維持原本 100% 音量
+        audio.setVideoMode(false);
         const img = document.createElement('img');
         img.src = m.src;
         img.alt = m.title;
@@ -917,7 +905,8 @@
           }, 3000);
         }
       } else {
-        audio.setVolumeScale(0.4); // 影片：降至原本 40% 音量
+        // 觸發影片時：背景音樂降為 40%
+        audio.setVideoMode(true);
 
         const video = document.createElement('video');
         video.src = m.src;
@@ -943,7 +932,6 @@
       modal.classList.remove('hidden');
     }
 
-    // 點擊「繼續探索」關閉 Modal
     document.getElementById('btn-close-memory').addEventListener('click', () => {
       stopModalVideo();
       document.getElementById('memory-modal').classList.add('hidden');
@@ -994,21 +982,21 @@
       isRunning = true;
     }
 
-    // 點擊「開始！」按鈕事件最頂層：立即執行 unlockContext()
+    // 點擊「開始」按鈕：100% 第一時間解鎖並啟動音樂
     const startBtn = document.getElementById('btn-start');
     const handleStart = function(e) {
       e.preventDefault();
-      audio.unlockContext(); // 1. 事件第一毫秒執行音訊解鎖與播放
+      audio.startMusic();
       startGame();
     };
     startBtn.addEventListener('click', handleStart);
     startBtn.addEventListener('touchstart', handleStart, { passive: false });
 
-    // 點擊「重新挑戰」按鈕事件最頂層：立即執行 unlockContext()
+    // 點擊「重新挑戰」按鈕
     const restartBtn = document.getElementById('btn-restart');
     const handleRestart = function(e) {
       e.preventDefault();
-      audio.unlockContext(); // 1. 事件第一毫秒執行音訊解鎖與播放
+      audio.startMusic();
       startGame();
     };
     restartBtn.addEventListener('click', handleRestart);
