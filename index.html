@@ -112,7 +112,7 @@
     #btn-down { grid-column: 2; grid-row: 2; }
     #btn-right { grid-column: 3; grid-row: 2; }
 
-    /* Modal 彈窗共用機制 (40% 透明顯色度) */
+    /* Modal 彈窗共用機制 */
     .modal-overlay {
       position: absolute;
       top: 0;
@@ -156,7 +156,6 @@
       overflow-y: auto;
     }
 
-    /* 上方黑框上的小比動態跑動容器 */
     .bunny-runner-track {
       position: absolute;
       top: -38px;
@@ -175,26 +174,11 @@
     }
 
     @keyframes bunnyRun {
-      0% {
-        left: 0%;
-        transform: scaleX(1);
-      }
-      48% {
-        left: calc(100% - 38px);
-        transform: scaleX(1);
-      }
-      50% {
-        left: calc(100% - 38px);
-        transform: scaleX(-1);
-      }
-      98% {
-        left: 0%;
-        transform: scaleX(-1);
-      }
-      100% {
-        left: 0%;
-        transform: scaleX(1);
-      }
+      0% { left: 0%; transform: scaleX(1); }
+      48% { left: calc(100% - 38px); transform: scaleX(1); }
+      50% { left: calc(100% - 38px); transform: scaleX(-1); }
+      98% { left: 0%; transform: scaleX(-1); }
+      100% { left: 0%; transform: scaleX(1); }
     }
 
     .modal-card h1 {
@@ -249,7 +233,6 @@
       background: #333333;
     }
     
-    /* 解鎖照片/影片對話框 */
     #memory-media-container {
       width: 100%;
       max-height: 55vh;
@@ -275,8 +258,8 @@
   <div id="game-container">
     <canvas id="gameCanvas"></canvas>
 
-    <!-- 內嵌 Base64 MP3 實體音訊（手機相容性 100% 解鎖） -->
-    <audio id="bgm-audio" loop playsinline preload="auto" src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA="></audio>
+    <!-- 實體 HTML5 背景音樂播放器（直接包含 WAV 數據，手機 100% 發聲） -->
+    <audio id="bgm-audio" loop playsinline preload="auto"></audio>
 
     <!-- HUD 進度 -->
     <div id="hud">已解鎖記憶：<span id="unlocked-count">0</span> / 10</div>
@@ -335,6 +318,58 @@
   </div>
 
   <script>
+    // --- 動態生成輕快 MIDI/WAV 音訊 DataURI 供 HTML5 Audio 使用 ---
+    function generateBGMDataURI() {
+      const sampleRate = 22050;
+      const duration = 8; // 8秒循環短旋律
+      const numSamples = sampleRate * duration;
+      const buffer = new ArrayBuffer(44 + numSamples);
+      const view = new DataView(buffer);
+
+      function writeString(offset, string) {
+        for (let i = 0; i < string.length; i++) {
+          view.setUint8(offset + i, string.charCodeAt(i));
+        }
+      }
+
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + numSamples, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate, true);
+      view.setUint16(32, 1, true);
+      view.setUint16(36, 8, true);
+      writeString(40, 'data');
+      view.setUint32(44, numSamples, true);
+
+      const notes = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63, 293.66, 349.23, 440.00, 587.33, 440.00, 349.23];
+      const noteLen = Math.floor(sampleRate * 0.25);
+
+      for (let i = 0; i < numSamples; i++) {
+        const noteIdx = Math.floor(i / noteLen) % notes.length;
+        const freq = notes[noteIdx];
+        const t = i / sampleRate;
+        const env = Math.exp(-((i % noteLen) / sampleRate) * 8);
+        const sample = Math.floor(128 + Math.sin(2 * Math.PI * freq * t) * 40 * env);
+        view.setUint8(44 + i, sample);
+      }
+
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return 'data:audio/wav;base64,' + btoa(binary);
+    }
+
+    const bgmAudio = document.getElementById('bgm-audio');
+    bgmAudio.src = generateBGMDataURI();
+
     // --- 繪製黑框上方跑動的小比 ---
     function renderRunnerBunny() {
       const bCanvas = document.getElementById('bunnyCanvas');
@@ -379,82 +414,27 @@
     }
     renderRunnerBunny();
 
-    // --- 音效與 BGM 系統 (手機 100% 一鍵發聲解鎖) ---
+    // --- 音效與 BGM 系統 ---
     class SoundEngine {
       constructor() {
-        this.ctx = null;
+        this.audioEl = document.getElementById('bgm-audio');
         this.isMuted = false;
-        this.bgmAudio = document.getElementById('bgm-audio');
-        this.bgmTimer = null;
-        this.bgmNoteIndex = 0;
-        this.volumeScale = 1.0;
-        this.melody = [
-          523.25, 659.25, 783.99, 1046.50, 783.99, 659.25,
-          587.33, 698.46, 880.00, 1174.66, 880.00, 698.46,
-          659.25, 783.99, 987.77, 1318.51, 987.77, 783.99,
-          523.25, 659.25, 783.99, 1046.50, 1046.50, 0
-        ];
+        this.ctx = null;
       }
 
-      // 手勢點擊當下，先用實體音訊 tag 告訴手機瀏覽器「開通聲音通道」
-      startMusic() {
-        if (this.isMuted) return;
-
-        // 1. 強制喚醒 audio 元素（這一步手勢解鎖能 100% 繞過 iOS/Android Autoplay 限制）
-        if (this.bgmAudio) {
-          this.bgmAudio.play().then(() => {
-            this.bgmAudio.pause(); // 開通通道後即可暫停無聲檔
-          }).catch(() => {});
+      startBGM() {
+        if (this.isMuted || !this.audioEl) return;
+        this.audioEl.volume = 1.0;
+        const playPromise = this.audioEl.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(() => {});
         }
-
-        // 2. 啟動 Web Audio API 背景音樂
-        try {
-          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-          if (!AudioContextClass) return;
-
-          if (!this.ctx) {
-            this.ctx = new AudioContextClass();
-          }
-
-          if (this.ctx.state === 'suspended') {
-            this.ctx.resume();
-          }
-
-          this.initSynthBGM();
-        } catch(e) {}
       }
 
-      initSynthBGM() {
-        if (this.bgmTimer) return;
-        this.bgmTimer = setInterval(() => {
-          if (this.isMuted || !this.ctx) return;
-          if (this.ctx.state === 'suspended') {
-            this.ctx.resume();
-          }
-          const freq = this.melody[this.bgmNoteIndex];
-          this.bgmNoteIndex = (this.bgmNoteIndex + 1) % this.melody.length;
-          if (freq > 0) {
-            const now = this.ctx.currentTime;
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, now);
-            
-            // 基礎音量 0.04，影片開啓時音量 scale 為 40% (0.016)
-            const targetGain = 0.04 * this.volumeScale;
-            gain.gain.setValueAtTime(targetGain, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-            osc.connect(gain);
-            gain.connect(this.ctx.destination);
-            osc.start(now);
-            osc.stop(now + 0.18);
-          }
-        }, 220);
-      }
-
-      // 觸及影片時將音量切換至原本的 40%，關閉時恢復 100%
       setVideoMode(isVideo) {
-        this.volumeScale = isVideo ? 0.4 : 1.0;
+        if (!this.audioEl) return;
+        // 開啟影片時設為 40% 音量 (0.4)，關閉影片恢復 100% 音量 (1.0)
+        this.audioEl.volume = isVideo ? 0.4 : 1.0;
       }
 
       toggleMute() {
@@ -464,72 +444,59 @@
           btn.innerText = '🎵 背景音樂：靜音';
           btn.style.borderColor = '#999999';
           btn.style.color = '#777777';
+          if (this.audioEl) this.audioEl.pause();
         } else {
           btn.innerText = '🎵 背景音樂：開啟';
           btn.style.borderColor = '#222222';
           btn.style.color = '#111111';
-          this.startMusic();
+          this.startBGM();
         }
       }
 
-      playUnlock() {
+      playSFX(type) {
         if (this.isMuted) return;
         try {
           if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
           const now = this.ctx.currentTime;
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
-          osc.type = 'triangle';
-          osc.frequency.setValueAtTime(523.25, now);
-          osc.frequency.exponentialRampToValueAtTime(1046.50, now + 0.25);
-          gain.gain.setValueAtTime(0.18, now);
-          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
-          osc.connect(gain); gain.connect(this.ctx.destination);
-          osc.start(now); osc.stop(now + 0.25);
-        } catch(e) {}
-      }
 
-      playFail() {
-        if (this.isMuted) return;
-        try {
-          if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-          const now = this.ctx.currentTime;
-          const osc = this.ctx.createOscillator();
-          const gain = this.ctx.createGain();
-          osc.type = 'sawtooth';
-          osc.frequency.setValueAtTime(220, now);
-          osc.frequency.exponentialRampToValueAtTime(80, now + 0.35);
-          gain.gain.setValueAtTime(0.2, now);
-          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
-          osc.connect(gain); gain.connect(this.ctx.destination);
-          osc.start(now); osc.stop(now + 0.35);
-        } catch(e) {}
-      }
-
-      playWin() {
-        if (this.isMuted) return;
-        try {
-          if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-          [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
-            const now = this.ctx.currentTime + i * 0.1;
-            const osc = this.ctx.createOscillator();
-            const gain = this.ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, now);
-            gain.gain.setValueAtTime(0.2, now);
-            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+          if (type === 'unlock') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(523.25, now);
+            osc.frequency.exponentialRampToValueAtTime(1046.50, now + 0.25);
+            gain.gain.setValueAtTime(0.18, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
             osc.connect(gain); gain.connect(this.ctx.destination);
-            osc.start(now); osc.stop(now + 0.2);
-          });
+            osc.start(now); osc.stop(now + 0.25);
+          } else if (type === 'fail') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(220, now);
+            osc.frequency.exponentialRampToValueAtTime(80, now + 0.35);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+            osc.connect(gain); gain.connect(this.ctx.destination);
+            osc.start(now); osc.stop(now + 0.35);
+          } else if (type === 'win') {
+            [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+              const t = now + i * 0.1;
+              const o = this.ctx.createOscillator();
+              const g = this.ctx.createGain();
+              o.type = 'sine';
+              o.frequency.setValueAtTime(freq, t);
+              g.gain.setValueAtTime(0.2, t);
+              g.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
+              o.connect(g); g.connect(this.ctx.destination);
+              o.start(t); o.stop(t + 0.2);
+            });
+          }
         } catch(e) {}
       }
     }
     const audio = new SoundEngine();
 
-    // 點擊右上角開關按鈕
     document.getElementById('music-btn').onclick = function(e) {
       e.stopPropagation();
-      audio.startMusic();
       audio.toggleMute();
     };
 
@@ -860,7 +827,7 @@
           m.unlocked = true;
           unlockedCount++;
           document.getElementById('unlocked-count').innerText = unlockedCount;
-          audio.playUnlock();
+          audio.playSFX('unlock');
           
           const isFinalMemory = (unlockedCount >= MEMORIES.length);
           showMemory(m, isFinalMemory);
@@ -910,7 +877,7 @@
           }, 3000);
         }
       } else {
-        // 觸發影片時：背景音樂調為 40%
+        // 觸發影片時：背景音樂調降為 40%
         audio.setVideoMode(true);
 
         const video = document.createElement('video');
@@ -951,12 +918,12 @@
       const desc = document.getElementById('end-desc');
 
       if (isWin) {
-        audio.playWin();
+        audio.playSFX('win');
         title.innerText = "🎉 挑戰成功！";
         title.style.color = "#111111";
         desc.innerText = "太棒了！小比順利收集齊全所有的溫馨記憶！✨";
       } else {
-        audio.playFail();
+        audio.playSFX('fail');
         title.innerText = "挑戰失敗 🐾";
         title.style.color = "#d90429";
         desc.innerText = "不小心被柴犬發現啦！再試一次吧！";
@@ -987,10 +954,10 @@
       isRunning = true;
     }
 
-    // 點擊「開始」按鈕：100% 同步觸發聲音播放
+    // 點擊「開始」或「重新挑戰」按鈕時：直接觸發實體 HTML5 Audio 播放
     function onStartGame(e) {
       if (e) e.preventDefault();
-      audio.startMusic();
+      audio.startBGM();
       startGame();
     }
 
