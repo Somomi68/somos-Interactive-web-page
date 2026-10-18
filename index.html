@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>小比的記憶花園 Somo’s Memory Garden</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0d130f;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    #game-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #0d130f;
+    }
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      box-shadow: 0 0 30px rgba(0,0,0,0.9);
+      border-radius: 6px;
+    }
+
+    /* HUD 進度介面 */
+    #hud {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background: rgba(18, 30, 22, 0.9);
+      border: 2px solid #528a62;
+      border-radius: 12px;
+      padding: 10px 18px;
+      color: #f0f7f4;
+      font-size: 16px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* 右上角音樂開關按鈕 */
+    #music-btn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: rgba(240, 240, 240, 0.9);
+      border: 2px solid #222222;
+      border-radius: 20px;
+      padding: 8px 16px;
+      color: #111111;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      z-index: 20;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      transition: background 0.2s, border-color 0.2s;
+    }
+    #music-btn:active {
+      transform: scale(0.96);
+    }
+
+    /* 手機/電腦實體按鈕 UI */
+    #controls {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 140px;
+      height: 140px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      gap: 6px;
+      z-index: 10;
+    }
+    .btn-key {
+      background: #2b4233;
+      border: 2px solid #528a62;
+      border-bottom: 4px solid #16241b;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 18px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .btn-key:active {
+      transform: translateY(2px);
+      border-bottom-width: 2px;
+      background: #3e5e49;
+    }
+    #btn-up { grid-column: 2; grid-row: 1; }
+    #btn-left { grid-column: 1; grid-row: 2; }
+    #btn-down { grid-column: 2; grid-row: 2; }
+    #btn-right { grid-column: 3; grid-row: 2; }
+
+    /* Modal 彈窗共用機制 (40% 透明顯色度) */
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(235, 238, 240, 0.4);
+      backdrop-filter: blur(4px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.15s ease, visibility 0.15s ease;
+    }
+    .modal-overlay.hidden {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+      z-index: -10 !important;
+      display: none !important;
+    }
+
+    /* 灰白風格開場 Modal 卡片設計 */
+    .modal-card {
+      position: relative;
+      background: #ffffff;
+      border: 3px solid #222222;
+      border-radius: 16px;
+      padding: 26px;
+      max-width: 500px;
+      width: 92%;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: #222222;
+      text-align: center;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+      overflow-y: auto;
+    }
+
+    /* 上方黑框上的小比動態跑動容器 */
+    .bunny-runner-track {
+      position: absolute;
+      top: -38px;
+      left: 20px;
+      right: 20px;
+      height: 38px;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .bunny-sprite {
+      position: absolute;
+      width: 38px;
+      height: 38px;
+      animation: bunnyRun 7s ease-in-out infinite;
+      image-rendering: pixelated;
+    }
+
+    @keyframes bunnyRun {
+      0% {
+        left: 0%;
+        transform: scaleX(1);
+      }
+      48% {
+        left: calc(100% - 38px);
+        transform: scaleX(1);
+      }
+      50% {
+        left: calc(100% - 38px);
+        transform: scaleX(-1);
+      }
+      98% {
+        left: 0%;
+        transform: scaleX(-1);
+      }
+      100% {
+        left: 0%;
+        transform: scaleX(1);
+      }
+    }
+
+    .modal-card h1 {
+      font-size: 21px;
+      color: #111111;
+      margin-bottom: 12px;
+      letter-spacing: 1px;
+      font-weight: 800;
+    }
+    .modal-card p {
+      font-size: 14px;
+      line-height: 1.6;
+      margin-bottom: 14px;
+      color: #444444;
+      text-align: left;
+      width: 100%;
+    }
+    .rules-box {
+      background: #f4f5f7;
+      border: 1.5px solid #d0d5dd;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+      width: 100%;
+      text-align: left;
+      font-size: 13px;
+      color: #333333;
+      line-height: 1.6;
+    }
+    .rules-box h2 {
+      font-size: 14px;
+      color: #111111;
+      margin-bottom: 6px;
+      font-weight: bold;
+    }
+    .modal-card .btn-action {
+      background: #222222;
+      color: #ffffff;
+      border: none;
+      padding: 12px 30px;
+      font-size: 15px;
+      font-weight: bold;
+      border-radius: 22px;
+      cursor: pointer;
+      box-shadow: 0 4px 0 #555555;
+      transition: transform 0.1s, background 0.2s;
+      flex-shrink: 0;
+    }
+    .modal-card .btn-action:active {
+      transform: translateY(2px);
+      box-shadow: 0 2px 0 #555555;
+      background: #333333;
+    }
+    
+    /* 解鎖照片/影片對話框 */
+    #memory-media-container {
+      width: 100%;
+      max-height: 55vh;
+      margin: 10px 0;
+      border-radius: 8px;
+      background: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border: 1px solid #cccccc;
+      overflow: hidden;
+    }
+    #memory-media-container img, #memory-media-container video {
+      width: 100%;
+      height: 100%;
+      max-height: 55vh;
+      object-fit: contain;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    
+    <!-- HUD 進度 -->
+    <div id="hud">已解鎖記憶：<span id="unlocked-count">0</span> / 10</div>
+
+    <!-- 右上角音樂開關鈕 -->
+    <button id="music-btn">🎵 背景音樂：開啟</button>
+
+    <!-- 實體方向鍵 -->
+    <div id="controls">
+      <div class="btn-key" id="btn-up">▲</div>
+      <div class="btn-key" id="btn-left">◄</div>
+      <div class="btn-key" id="btn-down">▼</div>
+      <div class="btn-key" id="btn-right">►</div>
+    </div>
+
+    <!-- 1. 開場簡介與規則 Modal -->
+    <div id="start-modal" class="modal-overlay">
+      <div class="modal-card">
+        <!-- 頂端黑框上方跑動的小比 -->
+        <div class="bunny-runner-track">
+          <canvas id="bunnyCanvas" class="bunny-sprite" width="38" height="38"></canvas>
+        </div>
+
+        <h1>小比的記憶花園<br>Somo’s Memory Garden</h1>
+        <p>小比是一隻擁有灰白柔順毛毛、明亮大眼的聰明好兔寶，請跟著小比的腳步，解鎖屬於牠的每一段故事，但同時要小心不要遇到狗狗!!</p>
+        
+        <div class="rules-box">
+          <h2>🎮 遊戲規則與操作指南：</h2>
+          • <b>控制方式</b>：電腦使用鍵盤 <b>↑ ↓ ← → / WASD</b>，手機請點擊右下角方向鍵。<br>
+          • <b>解鎖記憶</b>：踩踏地圖上散落的 <b>10 個核心物品（Emoji）</b> 來觸發專屬故事與照片影片。<br>
+          • <b>避開柴犬</b>：場景中有巡邏的柴犬狗狗，被狗狗碰觸到則<b>挑戰失敗</b>。<br>
+          • <b>勝利條件</b>：收集齊全所有 10 個記憶點即可獲得勝利！
+        </div>
+
+        <button id="btn-start" class="btn-action">開始！跟著小比一起漫遊回憶吧 ₍ᐢ.ˬ.ᐢ₎✨</button>
+      </div>
+    </div>
+
+    <!-- 2. RPG 記憶對話 Modal -->
+    <div id="memory-modal" class="modal-overlay hidden">
+      <div class="modal-card">
+        <h1 id="memory-title" style="color: #111111;">解鎖記憶！</h1>
+        <div id="memory-media-container"></div>
+        <p id="memory-text" style="text-align: center; font-size: 15px; font-weight: bold; color: #222222;"></p>
+        <button id="btn-close-memory" class="btn-action">繼續探索</button>
+      </div>
+    </div>
+
+    <!-- 3. 勝負結算 Modal -->
+    <div id="end-modal" class="modal-overlay hidden">
+      <div class="modal-card">
+        <h1 id="end-title">挑戰失敗</h1>
+        <p id="end-desc" style="text-align: center; margin-bottom: 20px; color: #444444;">被可愛的柴犬發現啦！</p>
+        <button id="btn-restart" class="btn-action">重新挑戰 🔄</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- 繪製黑框上方跑動的小比 ---
+    function renderRunnerBunny() {
+      const bCanvas = document.getElementById('bunnyCanvas');
+      if (!bCanvas) return;
+      const bCtx = bCanvas.getContext('2d');
+      bCtx.clearRect(0, 0, 38, 38);
+
+      bCtx.save();
+      bCtx.scale(1.18, 1.18);
+
+      bCtx.fillStyle = '#7a8288';
+      bCtx.fillRect(-2 + 12, -5 + 16, 18, 16);
+      bCtx.fillRect(-1 + 12, -11 + 16, 11, 10);
+
+      bCtx.fillStyle = '#7a8288';
+      bCtx.fillRect(-1 + 12, -18 + 16, 4, 8);
+      bCtx.fillRect(4 + 12, -18 + 16, 4, 8);
+      bCtx.fillStyle = '#e8a598';
+      bCtx.fillRect(1 + 12, -16 + 16, 2, 5);
+
+      bCtx.fillStyle = '#ffffff';
+      bCtx.fillRect(-3 + 12, -4 + 16, 13, 11);
+      bCtx.fillRect(-5 + 12, -1 + 16, 15, 7);
+
+      bCtx.fillStyle = '#ffffff';
+      bCtx.fillRect(2 + 12, 6 + 16, 4, 6);
+      bCtx.fillRect(-6 + 12, 8 + 16, 5, 3);
+      bCtx.fillStyle = '#7a8288';
+      bCtx.fillRect(-8 + 12, 3 + 16, 6, 6);
+
+      bCtx.fillStyle = '#ffffff';
+      bCtx.fillRect(-12 + 12, 1 + 16, 4, 5);
+
+      bCtx.fillStyle = '#111111';
+      bCtx.fillRect(5 + 12, -9 + 16, 3, 4);
+      bCtx.fillStyle = '#ffffff';
+      bCtx.fillRect(6 + 12, -9 + 16, 1, 1);
+      bCtx.fillStyle = '#e8a598';
+      bCtx.fillRect(9 + 12, -6 + 16, 2, 2);
+
+      bCtx.restore();
+    }
+    renderRunnerBunny();
+
+    // --- 音效與 BGM 系統 (行動裝置 iOS / Android Autoplay 完全相容相容優化) ---
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.isMuted = false;
+        this.bgmTimer = null;
+        this.bgmNoteIndex = 0;
+        this.volumeScale = 1.0;
+        this.unlocked = false;
+        this.melody = [
+          523.25, 659.25, 783.99, 1046.50, 783.99, 659.25,
+          587.33, 698.46, 880.00, 1174.66, 880.00, 698.46,
+          659.25, 783.99, 987.77, 1318.51, 987.77, 783.99,
+          523.25, 659.25, 783.99, 1046.50, 1046.50, 0
+        ];
+      }
+
+      init() {
+        try {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextClass) return;
+
+          if (!this.ctx) {
+            this.ctx = new AudioContextClass();
+          }
+
+          // 針對 iOS Safari 解鎖音訊通道 (播放微秒級靜音 buffer)
+          if (!this.unlocked && this.ctx) {
+            const buffer = this.ctx.createBuffer(1, 1, 22050);
+            const source = this.ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this.ctx.destination);
+            if (source.start) {
+              source.start(0);
+            } else if (source.noteOn) {
+              source.noteOn(0);
+            }
+            this.unlocked = true;
+          }
+
+          // 如果 Context 被行動瀏覽器設為 suspended，強制 resume
+          if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume();
+          }
+
+          this.startBGM();
+        } catch(e) {}
+      }
+
+      setVolumeScale(scale) {
+        this.volumeScale = scale;
+      }
+
+      toggleMute() {
+        this.isMuted = !this.isMuted;
+        const btn = document.getElementById('music-btn');
+        if (this.isMuted) {
+          btn.innerText = '🎵 背景音樂：靜音';
+          btn.style.borderColor = '#999999';
+          btn.style.color = '#777777';
+        } else {
+          btn.innerText = '🎵 背景音樂：開啟';
+          btn.style.borderColor = '#222222';
+          btn.style.color = '#111111';
+          this.init();
+        }
+      }
+
+      startBGM() {
+        if (this.bgmTimer || this.isMuted) return;
+        this.bgmTimer = setInterval(() => {
+          if (this.isMuted || !this.ctx) return;
+          if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+          }
+          const freq = this.melody[this.bgmNoteIndex];
+          this.bgmNoteIndex = (this.bgmNoteIndex + 1) % this.melody.length;
+          if (freq > 0) {
+            const now = this.ctx.currentTime;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now);
+            const targetGain = 0.04 * this.volumeScale;
+            gain.gain.setValueAtTime(targetGain, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.18);
+          }
+        }, 220);
+      }
+
+      playUnlock() {
+        if (this.isMuted || !this.ctx) return;
+        try {
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(523.25, now);
+          osc.frequency.exponentialRampToValueAtTime(1046.50, now + 0.25);
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+          osc.connect(gain); gain.connect(this.ctx.destination);
+          osc.start(now); osc.stop(now + 0.25);
+        } catch(e) {}
+      }
+
+      playFail() {
+        if (this.isMuted || !this.ctx) return;
+        try {
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(220, now);
+          osc.frequency.exponentialRampToValueAtTime(80, now + 0.35);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+          osc.connect(gain); gain.connect(this.ctx.destination);
+          osc.start(now); osc.stop(now + 0.35);
+        } catch(e) {}
+      }
+
+      playWin() {
+        if (this.isMuted || !this.ctx) return;
+        try {
+          [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+            const now = this.ctx.currentTime + i * 0.1;
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+            osc.connect(gain); gain.connect(this.ctx.destination);
+            osc.start(now); osc.stop(now + 0.2);
+          });
+        } catch(e) {}
+      }
+    }
+    const audio = new SoundEngine();
+
+    // 綁定全域手勢解鎖 (確保行動裝置點擊任何地方都能啟動音訊)
+    ['touchstart', 'touchend', 'mousedown', 'keydown'].forEach(evtType => {
+      window.addEventListener(evtType, () => {
+        audio.init();
+      }, { passive: true });
+    });
+
+    document.getElementById('music-btn').onclick = function(e) {
+      e.stopPropagation();
+      audio.init();
+      audio.toggleMute();
+    };
+
+    // --- 地圖與尺寸設定 ---
+    const COLS = 19;
+    const ROWS = 15;
+    const TILE = 32;
+    const GAME_W = COLS * TILE; // 608
+    const GAME_H = ROWS * TILE; // 480
+
+    const MAP = [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+      [1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,1,1,0,1],
+      [1,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,1],
+      [1,0,1,1,1,1,1,0,1,1,1,0,1,0,1,0,1,0,1],
+      [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1],
+      [1,1,1,1,1,0,1,1,1,0,1,1,1,1,1,1,1,0,1],
+      [1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,1],
+      [1,0,1,0,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1],
+      [1,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1],
+      [1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,1,1,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1],
+      [1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1],
+      [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+    ];
+
+    function getRegion(gx, gy) {
+      if (gx >= 13 && gy <= 5) return 'beach';
+      if (gy >= 11) return 'grass';
+      return 'room';
+    }
+
+    const MEMORIES = [
+      { id: 1, gx: 1, gy: 1, emoji: "🔳", title: "1. 大理石板 🔳", type: "p", src: "assets/p1.jpg", text: "天氣太熱啦！瞬間融化成一張冰涼的兔餅 🧊", unlocked: false },
+      { id: 2, gx: 9, gy: 1, emoji: "📚", title: "2. 講義書本 📚", type: "p", src: "assets/p2.jpg", text: "小比陪考中：主人說讀完這章有點心吃 ₍ᐢ.ˬ.ᐢ₎", unlocked: false },
+      { id: 3, gx: 5, gy: 3, emoji: "🪑", title: "3. 討摸摸椅子 🪑", type: "v", src: "assets/v1.mp4", text: "讀書累了嗎？摸摸小比頭頭可以補充 100% 電量喔！", unlocked: false },
+      { id: 4, gx: 1, gy: 5, emoji: "🍒", title: "4. 蔬果箱 🍒", type: "p", src: "assets/p3.jpg", text: "名副其實的櫻桃小嘴🍒", unlocked: false },
+      { id: 5, gx: 11, gy: 5, emoji: "🌿", title: "5. 一綑牧草 🌿", type: "p", src: "assets/p4.jpg", text: "平常乾草吃多了，也來點新鮮牧草!", unlocked: false },
+      { id: 6, gx: 1, gy: 9, emoji: "🛌", title: "6. 花色棉被 🛌", type: "v", src: "assets/v2.mp4", text: "小比不愛布製品，棉被 枕頭 衣服 毛巾都攻擊⚡", unlocked: false },
+      { id: 7, gx: 9, gy: 9, emoji: "🚽", title: "7. 綠色便盆 🚽", type: "p", src: "assets/p5.jpg", text: "我是隻會用便盆的聰明好兔寶🚽✨", unlocked: false },
+      { id: 8, gx: 17, gy: 1, emoji: "🌊", title: "8. 海浪圖樣 🌊", type: "p", src: "assets/p6.jpg", text: "小比雖然沒搭過船，但有在沙灘奔跑、吹過海風呦!", unlocked: false },
+      { id: 9, gx: 1, gy: 13, emoji: "🚠", title: "9. 貓空纜車 🚠", type: "v", src: "assets/v3.mp4", text: "特別的體驗！飛在空中小兔 Cable Car 🚠", unlocked: false },
+      { id: 10, gx: 17, gy: 13, emoji: "🏃‍♂️", title: "10. 草圖樣 🏃‍♂️", type: "v", src: "assets/v4.mp4", text: "我好像跑太快了嘻嘻～✨", unlocked: false }
+    ];
+
+    // --- Canvas 初始化與自適應 ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = GAME_W;
+    canvas.height = GAME_H;
+
+    function resizeCanvas() {
+      const w = window.innerWidth || document.documentElement.clientWidth || 800;
+      const h = window.innerHeight || document.documentElement.clientHeight || 600;
+      const scale = Math.max(0.2, Math.min(w / GAME_W, h / GAME_H) * 0.95);
+      canvas.style.width = `${GAME_W * scale}px`;
+      canvas.style.height = `${GAME_H * scale}px`;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let isRunning = false;
+    let isPaused = false;
+    let unlockedCount = 0;
+    let gameTime = 0;
+
+    const player = {
+      gx: 3, gy: 1,
+      x: 3 * TILE, y: 1 * TILE,
+      speed: 2.5,
+      facing: 'right',
+      isMoving: false
+    };
+
+    class Shiba {
+      constructor(gx, gy) {
+        this.gx = gx; this.gy = gy;
+        this.x = gx * TILE; this.y = gy * TILE;
+        this.targetGx = gx; this.targetGy = gy;
+        this.speed = 1.1;
+        this.dirX = 0; this.dirY = 0;
+        this.facing = 'right';
+        this.nextTile();
+      }
+
+      nextTile() {
+        this.gx = this.targetGx;
+        this.gy = this.targetGy;
+
+        const options = [];
+        const dirs = [
+          { x: 0, y: -1 }, { x: 0, y: 1 },
+          { x: -1, y: 0 }, { x: 1, y: 0 }
+        ];
+
+        dirs.forEach(d => {
+          const nx = this.gx + d.x;
+          const ny = this.gy + d.y;
+          if (MAP[ny] && MAP[ny][nx] === 0) {
+            if (d.x !== -this.dirX || d.y !== -this.dirY) {
+              options.push(d);
+            }
+          }
+        });
+
+        let chosen = options.length > 0 ? options[Math.floor(Math.random() * options.length)] : { x: -this.dirX, y: -this.dirY };
+        this.dirX = chosen.x;
+        this.dirY = chosen.y;
+        this.targetGx = this.gx + chosen.x;
+        this.targetGy = this.gy + chosen.y;
+        if (this.dirX !== 0) this.facing = this.dirX > 0 ? 'right' : 'left';
+      }
+
+      update() {
+        const tx = this.targetGx * TILE;
+        const ty = this.targetGy * TILE;
+        const dx = tx - this.x;
+        const dy = ty - this.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist <= this.speed) {
+          this.x = tx;
+          this.y = ty;
+          this.nextTile();
+        } else {
+          this.x += (dx / dist) * this.speed;
+          this.y += (dy / dist) * this.speed;
+        }
+      }
+    }
+
+    const shibas = [new Shiba(9, 7), new Shiba(15, 11)];
+
+    const keys = {};
+    window.addEventListener('keydown', e => {
+      audio.init();
+      keys[e.key] = true;
+    });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    function setupTouch(id, keyName) {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const press = (e) => { e.preventDefault(); audio.init(); keys[keyName] = true; };
+      const release = (e) => { e.preventDefault(); keys[keyName] = false; };
+      btn.addEventListener('touchstart', press, { passive: false });
+      btn.addEventListener('touchend', release, { passive: false });
+      btn.addEventListener('mousedown', press);
+      btn.addEventListener('mouseup', release);
+    }
+    setupTouch('btn-up', 'ArrowUp');
+    setupTouch('btn-down', 'ArrowDown');
+    setupTouch('btn-left', 'ArrowLeft');
+    setupTouch('btn-right', 'ArrowRight');
+
+    // --- 主繪圖渲染系統 ---
+    function render() {
+      gameTime += 0.04;
+      ctx.clearRect(0, 0, GAME_W, GAME_H);
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const x = c * TILE;
+          const y = r * TILE;
+          const reg = getRegion(c, r);
+
+          if (MAP[r][c] === 1) {
+            ctx.fillStyle = '#1c3d26';
+            ctx.fillRect(x, y, TILE, TILE);
+            ctx.fillStyle = '#2b5837';
+            ctx.fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
+            ctx.fillStyle = '#397047';
+            ctx.fillRect(x + 5, y + 5, 8, 8);
+            ctx.fillRect(x + 18, y + 16, 6, 6);
+            ctx.strokeStyle = '#0d1c12';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, TILE, TILE);
+          } else {
+            if (reg === 'room') {
+              ctx.fillStyle = (c + r) % 2 === 0 ? '#d4a373' : '#c9935f';
+              ctx.fillRect(x, y, TILE, TILE);
+              ctx.strokeStyle = '#b37f52';
+              ctx.beginPath();
+              ctx.moveTo(x, y + 16); ctx.lineTo(x + TILE, y + 16);
+              ctx.stroke();
+            } else if (reg === 'grass') {
+              ctx.fillStyle = (c + r) % 2 === 0 ? '#437c40' : '#3a6f37';
+              ctx.fillRect(x, y, TILE, TILE);
+              if ((c * 3 + r * 7) % 5 === 0) {
+                ctx.fillStyle = '#ffd166';
+                ctx.fillRect(x + 10, y + 10, 3, 3);
+              }
+            } else if (reg === 'beach') {
+              ctx.fillStyle = '#e9c46a';
+              ctx.fillRect(x, y, TILE, TILE);
+              const waveY = Math.sin(gameTime * 2.5 + c) * 3;
+              ctx.fillStyle = '#2a9d8f';
+              ctx.fillRect(x, y + 18 + waveY, TILE, TILE - 18);
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(x, y + 16 + waveY, TILE, 3);
+            }
+          }
+        }
+      }
+
+      MEMORIES.forEach(m => {
+        const mx = m.gx * TILE;
+        const my = m.gy * TILE;
+
+        if (!m.unlocked) {
+          ctx.fillStyle = 'rgba(255, 209, 102, 0.4)';
+          ctx.beginPath();
+          ctx.arc(mx + 16, my + 16, 12 + Math.sin(gameTime * 5) * 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.font = '20px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(m.emoji, mx + 16, my + 17);
+      });
+
+      shibas.forEach(s => drawShiba(s.x, s.y, s.facing));
+      drawSomo(player.x, player.y, player.facing, player.isMoving);
+    }
+
+    function drawSomo(x, y, facing, isMoving) {
+      ctx.save();
+      const hop = isMoving ? Math.abs(Math.sin(gameTime * 10)) * 5 : 0;
+      ctx.translate(x + 16, y + 16 - hop);
+      if (facing === 'left') ctx.scale(-1, 1);
+
+      ctx.fillStyle = '#7a8288';
+      ctx.fillRect(-10, -5, 18, 16);
+      ctx.fillRect(-1, -11, 11, 10);
+
+      ctx.fillStyle = '#7a8288';
+      ctx.fillRect(-1, -18, 4, 8);
+      ctx.fillRect(4, -18, 4, 8);
+      ctx.fillStyle = '#e8a598';
+      ctx.fillRect(1, -16, 2, 5);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-3, -4, 13, 11);
+      ctx.fillRect(-5, -1, 15, 7);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(2, 6, 4, 6);
+      ctx.fillRect(-6, 8, 5, 3);
+      ctx.fillStyle = '#7a8288';
+      ctx.fillRect(-8, 3, 6, 6);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-12, 1, 4, 5);
+
+      ctx.fillStyle = '#111111';
+      ctx.fillRect(5, -9, 3, 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(6, -9, 1, 1);
+      ctx.fillStyle = '#e8a598';
+      ctx.fillRect(9, -6, 2, 2);
+
+      ctx.restore();
+    }
+
+    function drawShiba(x, y, facing) {
+      ctx.save();
+      ctx.translate(x + 16, y + 16);
+      if (facing === 'left') ctx.scale(-1, 1);
+
+      ctx.fillStyle = '#e07a5f';
+      ctx.fillRect(-10, -7, 20, 14);
+      ctx.fillRect(2, -12, 9, 10);
+
+      ctx.fillStyle = '#f4f1de';
+      ctx.fillRect(-4, 2, 10, 5);
+      ctx.fillRect(5, -7, 6, 5);
+      ctx.fillStyle = '#2b2d42';
+      ctx.fillRect(4, -11, 2, 2);
+      ctx.fillRect(6, -9, 2, 2);
+
+      ctx.fillStyle = '#e07a5f';
+      ctx.fillRect(-12, -10, 4, 6);
+
+      ctx.restore();
+    }
+
+    // --- 遊戲邏輯與更新 ---
+    function update() {
+      if (!isRunning || isPaused) return;
+
+      let dx = 0, dy = 0;
+      if (keys.ArrowUp || keys.w || keys.W) dy = -1;
+      else if (keys.ArrowDown || keys.s || keys.S) dy = 1;
+      else if (keys.ArrowLeft || keys.a || keys.A) dx = -1;
+      else if (keys.ArrowRight || keys.d || keys.D) dx = 1;
+
+      if (dx !== 0) player.facing = dx > 0 ? 'right' : 'left';
+      player.isMoving = (dx !== 0 || dy !== 0);
+
+      const nextX = player.x + dx * player.speed;
+      const nextY = player.y + dy * player.speed;
+
+      const b = 6;
+      const tL = Math.floor((nextX + b) / TILE);
+      const tR = Math.floor((nextX + TILE - b) / TILE);
+      const tT = Math.floor((nextY + b) / TILE);
+      const tB = Math.floor((nextY + TILE - b) / TILE);
+
+      if (MAP[tT] && MAP[tT][tL] === 0 && MAP[tT][tR] === 0 && MAP[tB][tL] === 0 && MAP[tB][tR] === 0) {
+        player.x = nextX;
+        player.y = nextY;
+      }
+
+      shibas.forEach(s => s.update());
+
+      shibas.forEach(s => {
+        const dist = Math.hypot((player.x + 16) - (s.x + 16), (player.y + 16) - (s.y + 16));
+        if (dist < 18) {
+          endGame(false);
+        }
+      });
+
+      const centerGx = Math.floor((player.x + 16) / TILE);
+      const centerGy = Math.floor((player.y + 16) / TILE);
+
+      MEMORIES.forEach(m => {
+        if (!m.unlocked && m.gx === centerGx && m.gy === centerGy) {
+          m.unlocked = true;
+          unlockedCount++;
+          document.getElementById('unlocked-count').innerText = unlockedCount;
+          audio.playUnlock();
+          
+          const isFinalMemory = (unlockedCount >= MEMORIES.length);
+          showMemory(m, isFinalMemory);
+        }
+      });
+    }
+
+    // 關閉並完全停止 Modal 裡面的影片音訊
+    function stopModalVideo() {
+      const container = document.getElementById('memory-media-container');
+      const videos = container.getElementsByTagName('video');
+      for (let v of videos) {
+        v.pause();
+        v.currentTime = 0;
+        v.src = "";
+        v.load();
+      }
+      audio.setVolumeScale(1.0);
+    }
+
+    // 展示解鎖 Modal
+    function showMemory(m, isFinal) {
+      isPaused = true;
+      const modal = document.getElementById('memory-modal');
+      const title = document.getElementById('memory-title');
+      const text = document.getElementById('memory-text');
+      const container = document.getElementById('memory-media-container');
+
+      stopModalVideo();
+
+      title.innerText = m.title;
+      text.innerText = m.text;
+      container.innerHTML = '';
+
+      if (m.type === 'p') {
+        audio.setVolumeScale(1.0);
+        const img = document.createElement('img');
+        img.src = m.src;
+        img.alt = m.title;
+        img.onerror = () => { container.innerHTML = `<div style="padding:20px;color:#aaa;">[照片載入中: ${m.src}]</div>`; };
+        container.appendChild(img);
+
+        if (isFinal) {
+          setTimeout(() => {
+            document.getElementById('memory-modal').classList.add('hidden');
+            endGame(true);
+          }, 3000);
+        }
+      } else {
+        audio.setVolumeScale(0.4);
+
+        const video = document.createElement('video');
+        video.src = m.src;
+        video.controls = true;
+        video.autoplay = true;
+        video.playsInline = true;
+
+        if (isFinal) {
+          video.loop = false;
+          video.onended = function() {
+            stopModalVideo();
+            document.getElementById('memory-modal').classList.add('hidden');
+            endGame(true);
+          };
+        } else {
+          video.loop = true;
+        }
+
+        video.onerror = () => { container.innerHTML = `<div style="padding:20px;color:#aaa;">[影片載入中: ${m.src}]</div>`; };
+        container.appendChild(video);
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    document.getElementById('btn-close-memory').addEventListener('click', () => {
+      stopModalVideo();
+      document.getElementById('memory-modal').classList.add('hidden');
+      isPaused = false;
+    });
+
+    function endGame(isWin) {
+      isRunning = false;
+      stopModalVideo();
+      const modal = document.getElementById('end-modal');
+      const title = document.getElementById('end-title');
+      const desc = document.getElementById('end-desc');
+
+      if (isWin) {
+        audio.playWin();
+        title.innerText = "🎉 挑戰成功！";
+        title.style.color = "#111111";
+        desc.innerText = "太棒了！小比順利收集齊全所有的溫馨記憶！✨";
+      } else {
+        audio.playFail();
+        title.innerText = "挑戰失敗 🐾";
+        title.style.color = "#d90429";
+        desc.innerText = "不小心被柴犬發現啦！再試一次吧！";
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function startGame() {
+      audio.init();
+      stopModalVideo();
+      resizeCanvas();
+
+      unlockedCount = 0;
+      document.getElementById('unlocked-count').innerText = 0;
+      MEMORIES.forEach(m => m.unlocked = false);
+
+      player.x = 3 * TILE;
+      player.y = 1 * TILE;
+
+      shibas[0] = new Shiba(9, 7);
+      shibas[1] = new Shiba(15, 11);
+
+      document.getElementById('start-modal').classList.add('hidden');
+      document.getElementById('end-modal').classList.add('hidden');
+      document.getElementById('memory-modal').classList.add('hidden');
+
+      isPaused = false;
+      isRunning = true;
+    }
+
+    document.getElementById('btn-start').onclick = function(e) {
+      e.preventDefault();
+      audio.init();
+      startGame();
+    };
+
+    document.getElementById('btn-restart').onclick = function(e) {
+      e.preventDefault();
+      audio.init();
+      startGame();
+    };
+
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    resizeCanvas();
+    loop();
+  </script>
+</body>
+</html>
