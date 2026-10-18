@@ -377,14 +377,14 @@
     }
     renderRunnerBunny();
 
-    // --- 音效與 BGM 系統 (行動裝置 iOS / Android Autoplay 全平台強化引擎) ---
+    // --- 音效與 BGM 系統 (手機/電腦手勢完全解鎖) ---
     class SoundEngine {
       constructor() {
         this.ctx = null;
         this.isMuted = false;
         this.bgmTimer = null;
         this.bgmNoteIndex = 0;
-        this.volumeScale = 1.0; // 預設 100% 音量
+        this.volumeScale = 1.0;
         this.unlocked = false;
         this.melody = [
           523.25, 659.25, 783.99, 1046.50, 783.99, 659.25,
@@ -403,7 +403,7 @@
             this.ctx = new AudioContextClass();
           }
 
-          // iOS/Safari 專屬解鎖：建立 1 像素微秒極短無聲 buffer 觸發音訊通道
+          // iOS Safari 音訊通道強制解鎖 (播放極小聲無音 Buffer)
           if (!this.unlocked && this.ctx) {
             const buffer = this.ctx.createBuffer(1, 1, 22050);
             const source = this.ctx.createBufferSource();
@@ -417,7 +417,6 @@
             this.unlocked = true;
           }
 
-          // 如果狀態為 suspended (行動瀏覽器被鎖定狀態)，呼叫 resume 解鎖
           if (this.ctx && this.ctx.state === 'suspended') {
             this.ctx.resume();
           }
@@ -460,7 +459,6 @@
             const gain = this.ctx.createGain();
             osc.type = 'sine';
             osc.frequency.setValueAtTime(freq, now);
-            // 基礎音量 0.04 * 音量比例 (開啟影片時自動設為 0.4 縮放)
             const targetGain = 0.04 * this.volumeScale;
             gain.gain.setValueAtTime(targetGain, now);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
@@ -523,7 +521,7 @@
     }
     const audio = new SoundEngine();
 
-    // 註冊全域第一次觸控手勢解鎖
+    // 第一次點擊畫面時自動初始化音訊
     ['touchstart', 'touchend', 'mousedown', 'keydown'].forEach(evtType => {
       window.addEventListener(evtType, () => {
         audio.init();
@@ -549,12 +547,12 @@
       [1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,1,1,0,1],
       [1,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,1],
       [1,0,1,1,1,1,1,0,1,1,1,0,1,0,1,0,1,0,1],
-      [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1],
+      [1,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1], // (x=10, y=5) 一綑牧草左邊開通
       [1,1,1,1,1,0,1,1,1,0,1,1,1,1,1,1,1,0,1],
       [1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,1],
-      [1,0,1,0,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1],
+      [1,0,1,0,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1], // (x=5, y=8) 討摸摸椅子往下五格開通
       [1,0,1,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,1],
-      [1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,1,1,0,1],
+      [1,1,1,1,1,0,1,1,1,1,1,1,1,0,1,1,1,0,1], // (x=17, y=10) 最右走道完全開通
       [1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1],
       [1,0,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1],
       [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
@@ -614,7 +612,7 @@
         this.gx = gx; this.gy = gy;
         this.x = gx * TILE; this.y = gy * TILE;
         this.targetGx = gx; this.targetGy = gy;
-        this.speed = 1.1;
+        this.speed = 1.1; // 跑動速度
         this.dirX = 0; this.dirY = 0;
         this.facing = 'right';
         this.nextTile();
@@ -874,7 +872,7 @@
       });
     }
 
-    // 關閉並完全停止 Modal 裡面的影片音訊，同時復原 BGM 至 100% 音量
+    // 關閉並完全停止 Modal 裡面的影片音訊
     function stopModalVideo() {
       const container = document.getElementById('memory-media-container');
       const videos = container.getElementsByTagName('video');
@@ -884,7 +882,8 @@
         v.src = "";
         v.load();
       }
-      audio.setVolumeScale(1.0); // BGM 恢復 100% 正常音量
+      // 將背景音樂重置恢復至 100% 音量
+      audio.setVolumeScale(1.0);
     }
 
     // 展示解鎖 Modal
@@ -902,7 +901,7 @@
       container.innerHTML = '';
 
       if (m.type === 'p') {
-        audio.setVolumeScale(1.0); // 照片維持正常 BGM 音量
+        audio.setVolumeScale(1.0); // 照片時恢復 100% 音量
         const img = document.createElement('img');
         img.src = m.src;
         img.alt = m.title;
@@ -916,7 +915,7 @@
           }, 3000);
         }
       } else {
-        // 觸發影片時，自動降低背景音樂為原本的 40%
+        // 觸及影片時，將背景音樂降低為原本的 40%
         audio.setVolumeScale(0.4);
 
         const video = document.createElement('video');
@@ -943,16 +942,15 @@
       modal.classList.remove('hidden');
     }
 
-    // 點擊繼續探索關閉記憶彈窗
     document.getElementById('btn-close-memory').addEventListener('click', () => {
-      stopModalVideo();
+      stopModalVideo(); // 關閉影片彈窗時自動關閉影片聲音，並恢復 100% 音量
       document.getElementById('memory-modal').classList.add('hidden');
       isPaused = false;
     });
 
     function endGame(isWin) {
       isRunning = false;
-      stopModalVideo(); // 結束視窗跳出時，立刻停止影片音效並恢復 BGM
+      stopModalVideo();
       const modal = document.getElementById('end-modal');
       const title = document.getElementById('end-title');
       const desc = document.getElementById('end-desc');
@@ -973,7 +971,7 @@
     }
 
     function startGame() {
-      audio.init();
+      audio.init(); // 進入遊戲時立即解鎖並播放背景音樂
       stopModalVideo();
       resizeCanvas();
 
@@ -995,7 +993,7 @@
       isRunning = true;
     }
 
-    // 「開始」按鈕綁定音訊解鎖與啟動
+    // 點擊開始按鈕直接解鎖並啟動音樂
     document.getElementById('btn-start').onclick = function(e) {
       e.preventDefault();
       audio.init();
