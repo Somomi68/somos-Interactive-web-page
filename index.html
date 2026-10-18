@@ -376,7 +376,7 @@
     }
     renderRunnerBunny();
 
-    // --- 音效與 BGM 合成系統 ---
+    // --- 音效與 BGM 合成系統 (手機版相容強化) ---
     class SoundEngine {
       constructor() {
         this.ctx = null;
@@ -392,7 +392,7 @@
         ];
       }
 
-      // 手機與電腦通用的音訊強效解鎖與啟動機制
+      // 手勢點擊時第一時間呼叫的解鎖與啟動機制
       startMusic() {
         if (this.isMuted) return;
 
@@ -404,19 +404,19 @@
             this.ctx = new AudioContextClass();
           }
 
-          // iOS Safari 強力解鎖手法：建立 0.001 秒靜音 Buffer 播放
-          const silentBuf = this.ctx.createBuffer(1, 1, 22050);
-          const silentSrc = this.ctx.createBufferSource();
-          silentSrc.buffer = silentBuf;
-          silentSrc.connect(this.ctx.destination);
-          silentSrc.start(0);
-
-          // 確保 Context 狀態為 running
           if (this.ctx.state === 'suspended') {
             this.ctx.resume();
           }
 
-          // 啟動 BGM 節奏迴圈
+          // iOS 強效解鎖：播放一個瞬間的無聲音訊，讓瀏覽器批准背景播放
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          gain.gain.value = 0.0001;
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(0);
+          osc.stop(this.ctx.currentTime + 0.01);
+
           this.initSynthBGM();
         } catch(e) {}
       }
@@ -437,7 +437,6 @@
             osc.type = 'sine';
             osc.frequency.setValueAtTime(freq, now);
             
-            // 基礎音量 0.04，影片模式縮放為 40% (0.016)
             const targetGain = 0.04 * this.volumeScale;
             gain.gain.setValueAtTime(targetGain, now);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
@@ -522,10 +521,21 @@
     }
     const audio = new SoundEngine();
 
+    // 點擊音樂按鈕
     document.getElementById('music-btn').onclick = function(e) {
       e.stopPropagation();
+      audio.startMusic();
       audio.toggleMute();
     };
+
+    // 全域任何觸控行為預先解鎖音訊頻道
+    ['touchstart', 'click'].forEach(evt => {
+      document.addEventListener(evt, () => {
+        if (audio.ctx && audio.ctx.state === 'suspended') {
+          audio.ctx.resume();
+        }
+      }, { once: true });
+    });
 
     // --- 地圖與尺寸設定 ---
     const COLS = 19;
@@ -556,3 +566,454 @@
       if (gx >= 13 && gy <= 5) return 'beach';
       if (gy >= 11) return 'grass';
       return 'room';
+    }
+
+    const MEMORIES = [
+      { id: 1, gx: 1, gy: 1, emoji: "🔳", title: "1. 大理石板 🔳", type: "p", src: "assets/p1.jpg", text: "天氣太熱啦！瞬間融化成一張冰涼的兔餅 🧊", unlocked: false },
+      { id: 2, gx: 9, gy: 1, emoji: "📚", title: "2. 講義書本 📚", type: "p", src: "assets/p2.jpg", text: "小比陪考中：主人說讀完這章有點心吃 ₍ᐢ.ˬ.ᐢ₎", unlocked: false },
+      { id: 3, gx: 5, gy: 3, emoji: "🪑", title: "3. 討摸摸椅子 🪑", type: "v", src: "assets/v1.mp4", text: "讀書累了嗎？摸摸小比頭頭可以補充 100% 電量喔！", unlocked: false },
+      { id: 4, gx: 1, gy: 5, emoji: "🍒", title: "4. 蔬果箱 🍒", type: "p", src: "assets/p3.jpg", text: "名副其實的櫻桃小嘴🍒", unlocked: false },
+      { id: 5, gx: 11, gy: 5, emoji: "🌿", title: "5. 一綑牧草 🌿", type: "p", src: "assets/p4.jpg", text: "平常乾草吃多了，也來點新鮮牧草!", unlocked: false },
+      { id: 6, gx: 1, gy: 9, emoji: "🛌", title: "6. 花色棉被 🛌", type: "v", src: "assets/v2.mp4", text: "小比不愛布製品，棉被 枕頭 衣服 毛巾都攻擊⚡", unlocked: false },
+      { id: 7, gx: 9, gy: 9, emoji: "🚽", title: "7. 綠色便盆 🚽", type: "p", src: "assets/p5.jpg", text: "我是隻會用便盆的聰明好兔寶🚽✨", unlocked: false },
+      { id: 8, gx: 17, gy: 1, emoji: "🌊", title: "8. 海浪圖樣 🌊", type: "p", src: "assets/p6.jpg", text: "小比雖然沒搭過船，但有在沙灘奔跑、吹過海風呦!", unlocked: false },
+      { id: 9, gx: 1, gy: 13, emoji: "🚠", title: "9. 貓空纜車 🚠", type: "v", src: "assets/v3.mp4", text: "特別的體驗！飛在空中小兔 Cable Car 🚠", unlocked: false },
+      { id: 10, gx: 17, gy: 13, emoji: "🏃‍♂️", title: "10. 草圖樣 🏃‍♂️", type: "v", src: "assets/v4.mp4", text: "我好像跑太快了嘻嘻～✨", unlocked: false }
+    ];
+
+    // --- Canvas 初始化與自適應 ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = GAME_W;
+    canvas.height = GAME_H;
+
+    function resizeCanvas() {
+      const w = window.innerWidth || document.documentElement.clientWidth || 800;
+      const h = window.innerHeight || document.documentElement.clientHeight || 600;
+      const scale = Math.max(0.2, Math.min(w / GAME_W, h / GAME_H) * 0.95);
+      canvas.style.width = `${GAME_W * scale}px`;
+      canvas.style.height = `${GAME_H * scale}px`;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    let isRunning = false;
+    let isPaused = false;
+    let unlockedCount = 0;
+    let gameTime = 0;
+
+    const player = {
+      gx: 3, gy: 1,
+      x: 3 * TILE, y: 1 * TILE,
+      speed: 2.5,
+      facing: 'right',
+      isMoving: false
+    };
+
+    class Shiba {
+      constructor(gx, gy) {
+        this.gx = gx; this.gy = gy;
+        this.x = gx * TILE; this.y = gy * TILE;
+        this.targetGx = gx; this.targetGy = gy;
+        this.speed = 1.1;
+        this.dirX = 0; this.dirY = 0;
+        this.facing = 'right';
+        this.nextTile();
+      }
+
+      nextTile() {
+        this.gx = this.targetGx;
+        this.gy = this.targetGy;
+
+        const options = [];
+        const dirs = [
+          { x: 0, y: -1 }, { x: 0, y: 1 },
+          { x: -1, y: 0 }, { x: 1, y: 0 }
+        ];
+
+        dirs.forEach(d => {
+          const nx = this.gx + d.x;
+          const ny = this.gy + d.y;
+          if (MAP[ny] && MAP[ny][nx] === 0) {
+            if (d.x !== -this.dirX || d.y !== -this.dirY) {
+              options.push(d);
+            }
+          }
+        });
+
+        let chosen = options.length > 0 ? options[Math.floor(Math.random() * options.length)] : { x: -this.dirX, y: -this.dirY };
+        this.dirX = chosen.x;
+        this.dirY = chosen.y;
+        this.targetGx = this.gx + chosen.x;
+        this.targetGy = this.gy + chosen.y;
+        if (this.dirX !== 0) this.facing = this.dirX > 0 ? 'right' : 'left';
+      }
+
+      update() {
+        const tx = this.targetGx * TILE;
+        const ty = this.targetGy * TILE;
+        const dx = tx - this.x;
+        const dy = ty - this.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist <= this.speed) {
+          this.x = tx;
+          this.y = ty;
+          this.nextTile();
+        } else {
+          this.x += (dx / dist) * this.speed;
+          this.y += (dy / dist) * this.speed;
+        }
+      }
+    }
+
+    const shibas = [new Shiba(9, 7), new Shiba(15, 11)];
+
+    const keys = {};
+    window.addEventListener('keydown', e => { keys[e.key] = true; });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    function setupTouch(id, keyName) {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const press = (e) => { e.preventDefault(); keys[keyName] = true; };
+      const release = (e) => { e.preventDefault(); keys[keyName] = false; };
+      btn.addEventListener('touchstart', press, { passive: false });
+      btn.addEventListener('touchend', release, { passive: false });
+      btn.addEventListener('mousedown', press);
+      btn.addEventListener('mouseup', release);
+    }
+    setupTouch('btn-up', 'ArrowUp');
+    setupTouch('btn-down', 'ArrowDown');
+    setupTouch('btn-left', 'ArrowLeft');
+    setupTouch('btn-right', 'ArrowRight');
+
+    // --- 主繪圖渲染系統 ---
+    function render() {
+      gameTime += 0.04;
+      ctx.clearRect(0, 0, GAME_W, GAME_H);
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const x = c * TILE;
+          const y = r * TILE;
+          const reg = getRegion(c, r);
+
+          if (MAP[r][c] === 1) {
+            ctx.fillStyle = '#1c3d26';
+            ctx.fillRect(x, y, TILE, TILE);
+            ctx.fillStyle = '#2b5837';
+            ctx.fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
+            ctx.fillStyle = '#397047';
+            ctx.fillRect(x + 5, y + 5, 8, 8);
+            ctx.fillRect(x + 18, y + 16, 6, 6);
+            ctx.strokeStyle = '#0d1c12';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x, y, TILE, TILE);
+          } else {
+            if (reg === 'room') {
+              ctx.fillStyle = (c + r) % 2 === 0 ? '#d4a373' : '#c9935f';
+              ctx.fillRect(x, y, TILE, TILE);
+              ctx.strokeStyle = '#b37f52';
+              ctx.beginPath();
+              ctx.moveTo(x, y + 16); ctx.lineTo(x + TILE, y + 16);
+              ctx.stroke();
+            } else if (reg === 'grass') {
+              ctx.fillStyle = (c + r) % 2 === 0 ? '#437c40' : '#3a6f37';
+              ctx.fillRect(x, y, TILE, TILE);
+              if ((c * 3 + r * 7) % 5 === 0) {
+                ctx.fillStyle = '#ffd166';
+                ctx.fillRect(x + 10, y + 10, 3, 3);
+              }
+            } else if (reg === 'beach') {
+              ctx.fillStyle = '#e9c46a';
+              ctx.fillRect(x, y, TILE, TILE);
+              const waveY = Math.sin(gameTime * 2.5 + c) * 3;
+              ctx.fillStyle = '#2a9d8f';
+              ctx.fillRect(x, y + 18 + waveY, TILE, TILE - 18);
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(x, y + 16 + waveY, TILE, 3);
+            }
+          }
+        }
+      }
+
+      MEMORIES.forEach(m => {
+        const mx = m.gx * TILE;
+        const my = m.gy * TILE;
+
+        if (!m.unlocked) {
+          ctx.fillStyle = 'rgba(255, 209, 102, 0.4)';
+          ctx.beginPath();
+          ctx.arc(mx + 16, my + 16, 12 + Math.sin(gameTime * 5) * 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.font = '20px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(m.emoji, mx + 16, my + 17);
+      });
+
+      shibas.forEach(s => drawShiba(s.x, s.y, s.facing));
+      drawSomo(player.x, player.y, player.facing, player.isMoving);
+    }
+
+    function drawSomo(x, y, facing, isMoving) {
+      ctx.save();
+      const hop = isMoving ? Math.abs(Math.sin(gameTime * 10)) * 5 : 0;
+      ctx.translate(x + 16, y + 16 - hop);
+      if (facing === 'left') ctx.scale(-1, 1);
+
+      ctx.fillStyle = '#7a8288';
+      ctx.fillRect(-10, -5, 18, 16);
+      ctx.fillRect(-1, -11, 11, 10);
+
+      ctx.fillStyle = '#7a8288';
+      ctx.fillRect(-1, -18, 4, 8);
+      ctx.fillRect(4, -18, 4, 8);
+      ctx.fillStyle = '#e8a598';
+      ctx.fillRect(1, -16, 2, 5);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-3, -4, 13, 11);
+      ctx.fillRect(-5, -1, 15, 7);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(2, 6, 4, 6);
+      ctx.fillRect(-6, 8, 5, 3);
+      ctx.fillStyle = '#7a8288';
+      ctx.fillRect(-8, 3, 6, 6);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-12, 1, 4, 5);
+
+      ctx.fillStyle = '#111111';
+      ctx.fillRect(5, -9, 3, 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(6, -9, 1, 1);
+      ctx.fillStyle = '#e8a598';
+      ctx.fillRect(9, -6, 2, 2);
+
+      ctx.restore();
+    }
+
+    function drawShiba(x, y, facing) {
+      ctx.save();
+      ctx.translate(x + 16, y + 16);
+      if (facing === 'left') ctx.scale(-1, 1);
+
+      ctx.fillStyle = '#e07a5f';
+      ctx.fillRect(-10, -7, 20, 14);
+      ctx.fillRect(2, -12, 9, 10);
+
+      ctx.fillStyle = '#f4f1de';
+      ctx.fillRect(-4, 2, 10, 5);
+      ctx.fillRect(5, -7, 6, 5);
+      ctx.fillStyle = '#2b2d42';
+      ctx.fillRect(4, -11, 2, 2);
+      ctx.fillRect(6, -9, 2, 2);
+
+      ctx.fillStyle = '#e07a5f';
+      ctx.fillRect(-12, -10, 4, 6);
+
+      ctx.restore();
+    }
+
+    // --- 遊戲邏輯與更新 ---
+    function update() {
+      if (!isRunning || isPaused) return;
+
+      let dx = 0, dy = 0;
+      if (keys.ArrowUp || keys.w || keys.W) dy = -1;
+      else if (keys.ArrowDown || keys.s || keys.S) dy = 1;
+      else if (keys.ArrowLeft || keys.a || keys.A) dx = -1;
+      else if (keys.ArrowRight || keys.d || keys.D) dx = 1;
+
+      if (dx !== 0) player.facing = dx > 0 ? 'right' : 'left';
+      player.isMoving = (dx !== 0 || dy !== 0);
+
+      const nextX = player.x + dx * player.speed;
+      const nextY = player.y + dy * player.speed;
+
+      const b = 6;
+      const tL = Math.floor((nextX + b) / TILE);
+      const tR = Math.floor((nextX + TILE - b) / TILE);
+      const tT = Math.floor((nextY + b) / TILE);
+      const tB = Math.floor((nextY + TILE - b) / TILE);
+
+      if (MAP[tT] && MAP[tT][tL] === 0 && MAP[tT][tR] === 0 && MAP[tB][tL] === 0 && MAP[tB][tR] === 0) {
+        player.x = nextX;
+        player.y = nextY;
+      }
+
+      shibas.forEach(s => s.update());
+
+      shibas.forEach(s => {
+        const dist = Math.hypot((player.x + 16) - (s.x + 16), (player.y + 16) - (s.y + 16));
+        if (dist < 18) {
+          endGame(false);
+        }
+      });
+
+      const centerGx = Math.floor((player.x + 16) / TILE);
+      const centerGy = Math.floor((player.y + 16) / TILE);
+
+      MEMORIES.forEach(m => {
+        if (!m.unlocked && m.gx === centerGx && m.gy === centerGy) {
+          m.unlocked = true;
+          unlockedCount++;
+          document.getElementById('unlocked-count').innerText = unlockedCount;
+          audio.playUnlock();
+          
+          const isFinalMemory = (unlockedCount >= MEMORIES.length);
+          showMemory(m, isFinalMemory);
+        }
+      });
+    }
+
+    // 關閉並完全停止影片音訊，背景音樂恢復 100%
+    function stopModalVideo() {
+      const container = document.getElementById('memory-media-container');
+      const videos = container.getElementsByTagName('video');
+      for (let v of videos) {
+        v.pause();
+        v.currentTime = 0;
+        v.src = "";
+        v.load();
+      }
+      audio.setVideoMode(false);
+    }
+
+    // 展示解鎖 Modal
+    function showMemory(m, isFinal) {
+      isPaused = true;
+      const modal = document.getElementById('memory-modal');
+      const title = document.getElementById('memory-title');
+      const text = document.getElementById('memory-text');
+      const container = document.getElementById('memory-media-container');
+
+      stopModalVideo();
+
+      title.innerText = m.title;
+      text.innerText = m.text;
+      container.innerHTML = '';
+
+      if (m.type === 'p') {
+        audio.setVideoMode(false);
+        const img = document.createElement('img');
+        img.src = m.src;
+        img.alt = m.title;
+        img.onerror = () => { container.innerHTML = `<div style="padding:20px;color:#aaa;">[照片載入中: ${m.src}]</div>`; };
+        container.appendChild(img);
+
+        if (isFinal) {
+          setTimeout(() => {
+            document.getElementById('memory-modal').classList.add('hidden');
+            endGame(true);
+          }, 3000);
+        }
+      } else {
+        // 觸發影片時：背景音樂降為 40%
+        audio.setVideoMode(true);
+
+        const video = document.createElement('video');
+        video.src = m.src;
+        video.controls = true;
+        video.autoplay = true;
+        video.playsInline = true;
+
+        if (isFinal) {
+          video.loop = false;
+          video.onended = function() {
+            stopModalVideo();
+            document.getElementById('memory-modal').classList.add('hidden');
+            endGame(true);
+          };
+        } else {
+          video.loop = true;
+        }
+
+        video.onerror = () => { container.innerHTML = `<div style="padding:20px;color:#aaa;">[影片載入中: ${m.src}]</div>`; };
+        container.appendChild(video);
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    document.getElementById('btn-close-memory').addEventListener('click', () => {
+      stopModalVideo();
+      document.getElementById('memory-modal').classList.add('hidden');
+      isPaused = false;
+    });
+
+    function endGame(isWin) {
+      isRunning = false;
+      stopModalVideo();
+      const modal = document.getElementById('end-modal');
+      const title = document.getElementById('end-title');
+      const desc = document.getElementById('end-desc');
+
+      if (isWin) {
+        audio.playWin();
+        title.innerText = "🎉 挑戰成功！";
+        title.style.color = "#111111";
+        desc.innerText = "太棒了！小比順利收集齊全所有的溫馨記憶！✨";
+      } else {
+        audio.playFail();
+        title.innerText = "挑戰失敗 🐾";
+        title.style.color = "#d90429";
+        desc.innerText = "不小心被柴犬發現啦！再試一次吧！";
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    function startGame() {
+      stopModalVideo();
+      resizeCanvas();
+
+      unlockedCount = 0;
+      document.getElementById('unlocked-count').innerText = 0;
+      MEMORIES.forEach(m => m.unlocked = false);
+
+      player.x = 3 * TILE;
+      player.y = 1 * TILE;
+
+      shibas[0] = new Shiba(9, 7);
+      shibas[1] = new Shiba(15, 11);
+
+      document.getElementById('start-modal').classList.add('hidden');
+      document.getElementById('end-modal').classList.add('hidden');
+      document.getElementById('memory-modal').classList.add('hidden');
+
+      isPaused = false;
+      isRunning = true;
+    }
+
+    // 點擊「開始」或「重新挑戰」時，強制同步執行聲音啟動
+    function onUserStartGame(e) {
+      if (e) e.preventDefault();
+      audio.startMusic();
+      startGame();
+    }
+
+    const startBtn = document.getElementById('btn-start');
+    startBtn.onclick = onUserStartGame;
+    startBtn.ontouchstart = onUserStartGame;
+
+    const restartBtn = document.getElementById('btn-restart');
+    restartBtn.onclick = onUserStartGame;
+    restartBtn.ontouchstart = onUserStartGame;
+
+    function loop() {
+      update();
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    resizeCanvas();
+    loop();
+  </script>
+</body>
+</html>
